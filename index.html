@@ -2,16 +2,16 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Hand Gesture Particles: Grab & Push</title>
+    <title>3D Magic Particles - Color Edition</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #status { position: absolute; top: 20px; left: 20px; color: #00d4ff; font-size: 18px; text-shadow: 0 0 10px #00d4ff; }
-        #video-container { position: absolute; bottom: 10px; right: 10px; width: 160px; height: 120px; border: 2px solid #00d4ff; border-radius: 8px; overflow: hidden; transform: scaleX(-1); opacity: 0.5; }
+        body { margin: 0; overflow: hidden; background: #000; }
+        #status { position: absolute; top: 20px; left: 20px; color: white; font-family: 'Courier New', Courier, monospace; pointer-events: none; }
+        #video-container { position: absolute; bottom: 10px; right: 10px; width: 150px; height: 110px; border: 1px solid #555; border-radius: 5px; overflow: hidden; transform: scaleX(-1); opacity: 0.3; }
         video { width: 100%; height: 100%; object-fit: cover; }
     </style>
 </head>
 <body>
-    <div id="status">Đang khởi tạo Camera...</div>
+    <div id="status">Đang khởi động phép thuật...</div>
     <div id="video-container"><video id="webcam" autoplay></video></div>
 
     <script type="importmap">
@@ -21,71 +21,83 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- 1. Cấu hình Three.js ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        const count = 12000;
+        // --- CẤU HÌNH HẠT & MÀU SẮC ---
+        const count = 15000;
         const pos = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3); // Mảng chứa màu RGB cho từng hạt
         const originalPos = new Float32Array(count * 3);
         const handData = { x: 0, y: 0, isGrabbing: false, active: false };
 
-        for (let i = 0; i < count * 3; i++) {
-            pos[i] = (Math.random() - 0.5) * 15;
-            originalPos[i] = pos[i];
+        const colorObj = new THREE.Color();
+
+        for (let i = 0; i < count; i++) {
+            let ix = i * 3;
+            // Vị trí
+            pos[ix] = (Math.random() - 0.5) * 15;
+            pos[ix+1] = (Math.random() - 0.5) * 15;
+            pos[ix+2] = (Math.random() - 0.5) * 15;
+            originalPos.set([pos[ix], pos[ix+1], pos[ix+2]], ix);
+
+            // Tạo màu sắc ban đầu (Gradient dựa trên vị trí X)
+            colorObj.setHSL(Math.abs(pos[ix] / 15), 0.8, 0.6); 
+            colors[ix] = colorObj.r;
+            colors[ix+1] = colorObj.g;
+            colors[ix+2] = colorObj.b;
         }
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        const material = new THREE.PointsMaterial({ size: 0.02, color: 0x00d4ff, transparent: true, blending: THREE.AdditiveBlending });
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3)); // Kích hoạt màu đỉnh
+
+        const material = new THREE.PointsMaterial({ 
+            size: 0.025, 
+            vertexColors: true, // Cho phép sử dụng mảng màu đã tạo
+            transparent: true, 
+            blending: THREE.AdditiveBlending,
+            depthWrite: false 
+        });
+
         const points = new THREE.Points(geometry, material);
         scene.add(points);
-        camera.position.z = 6;
+        camera.position.z = 7;
 
-        // --- 2. Xử lý MediaPipe Hands ---
+        // --- NHẬN DIỆN TAY (MediaPipe) ---
         async function setupHandTracking() {
             const hands = new window.Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
-
-            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
 
             hands.onResults((results) => {
                 const statusEl = document.getElementById('status');
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     handData.active = true;
-                    const landmarks = results.multiHandLandmarks[0];
+                    const lm = results.multiHandLandmarks[0];
+                    const wrist = lm[0];
+                    const tips = [lm[8], lm[12], lm[16], lm[20]];
                     
-                    // Điểm mốc: 0 (Cổ tay), 8 (Trỏ), 12 (Giữa), 16 (Nhẫn), 20 (Út)
-                    const wrist = landmarks[0];
-                    const fingertips = [landmarks[8], landmarks[12], landmarks[16], landmarks[20]];
+                    let d = 0;
+                    tips.forEach(t => d += Math.sqrt(Math.pow(t.x-wrist.x,2) + Math.pow(t.y-wrist.y,2)));
+                    handData.isGrabbing = (d/4) < 0.3;
+                    handData.x = (1 - lm[9].x) * 2 - 1;
+                    handData.y = -(lm[9].y * 2 - 1);
                     
-                    // Tính khoảng cách trung bình từ các đầu ngón tay tới cổ tay để xác định nắm/xòe
-                    let avgDist = 0;
-                    fingertips.forEach(f => {
-                        avgDist += Math.sqrt(Math.pow(f.x - wrist.x, 2) + Math.pow(f.y - wrist.y, 2));
-                    });
-                    avgDist /= 4;
-
-                    handData.isGrabbing = avgDist < 0.3; // Ngưỡng xác định nắm tay
-                    handData.x = (1 - landmarks[9].x) * 2 - 1; // Lấy mốc giữa bàn tay
-                    handData.y = -(landmarks[9].y * 2 - 1);
-                    
-                    statusEl.innerText = handData.isGrabbing ? "TRẠNG THÁI: HÚT (NẮM TAY)" : "TRẠNG THÁI: ĐẨY (XÒE TAY)";
-                    statusEl.style.color = handData.isGrabbing ? "#ff0055" : "#00d4ff";
+                    statusEl.innerText = handData.isGrabbing ? "TRẠNG THÁI: HÚT VÀ ĐỔI MÀU ĐỎ" : "TRẠNG THÁI: ĐẨY VÀ MÀU XANH";
                 } else {
                     handData.active = false;
-                    statusEl.innerText = "HÃY GIƠ TAY TRƯỚC CAMERA";
+                    statusEl.innerText = "HÃY GIƠ TAY LÊN";
                 }
             });
 
             const videoElement = document.getElementById('webcam');
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             videoElement.srcObject = stream;
-            
             const cameraUtils = new window.Camera(videoElement, {
                 onFrame: async () => { await hands.send({image: videoElement}); },
                 width: 640, height: 480
@@ -93,40 +105,57 @@
             cameraUtils.start();
         }
 
-        // --- 3. Vòng lặp Render & Vật lý hạt ---
+        // --- VÒNG LẶP RENDER ---
         function animate() {
             requestAnimationFrame(animate);
-            const positions = geometry.attributes.position.array;
-            const hx = handData.x * 7;
-            const hy = handData.y * 5;
+            const p = geometry.attributes.position.array;
+            const c = geometry.attributes.color.array;
+            const hx = handData.x * 8;
+            const hy = handData.y * 6;
 
             for (let i = 0; i < count; i++) {
-                let ix = i * 3, iy = i * 3 + 1;
-                let dx = positions[ix] - hx;
-                let dy = positions[iy] - hy;
+                let ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
+                let dx = p[ix] - hx;
+                let dy = p[iy] - hy;
                 let dist = Math.sqrt(dx*dx + dy*dy);
 
-                if (handData.active && dist < 3) {
-                    // Nếu nắm tay (isGrabbing = true) -> Lực hút (-)
-                    // Nếu xòe tay (isGrabbing = false) -> Lực đẩy (+)
-                    let forceMagnitude = handData.isGrabbing ? -0.1 : 0.2;
-                    let force = (3 - dist) / 3 * forceMagnitude;
-                    
-                    positions[ix] += dx * force;
-                    positions[iy] += dy * force;
+                if (handData.active && dist < 3.5) {
+                    let force = (3.5 - dist) / 3.5;
+                    let speed = handData.isGrabbing ? -0.15 : 0.25;
+                    p[ix] += dx * force * speed;
+                    p[iy] += dy * force * speed;
+
+                    // ĐỔI MÀU KHI CHẠM TAY
+                    if (handData.isGrabbing) {
+                        // Nắm tay -> Chuyển dần sang màu Đỏ/Cam
+                        c[ix] += (1.0 - c[ix]) * 0.1;
+                        c[ix+1] += (0.2 - c[ix+1]) * 0.1;
+                        c[ix+2] += (0.0 - c[ix+2]) * 0.1;
+                    } else {
+                        // Xòe tay -> Chuyển dần sang màu Xanh neon
+                        c[ix] += (0.0 - c[ix]) * 0.1;
+                        c[ix+1] += (0.8 - c[ix+1]) * 0.1;
+                        c[ix+2] += (1.0 - c[ix+2]) * 0.1;
+                    }
                 } else {
-                    // Trở về vị trí ban đầu
-                    positions[ix] += (originalPos[ix] - positions[ix]) * 0.03;
-                    positions[iy] += (originalPos[iy] - positions[iy]) * 0.03;
+                    // Về vị trí cũ & Màu gốc (Gradient Tím/Xanh)
+                    p[ix] += (originalPos[ix] - p[ix]) * 0.05;
+                    p[iy] += (originalPos[iy] - p[iy]) * 0.05;
+                    
+                    let hue = Math.abs(originalPos[ix] / 15);
+                    colorObj.setHSL(hue, 0.8, 0.5);
+                    c[ix] += (colorObj.r - c[ix]) * 0.02;
+                    c[ix+1] += (colorObj.g - c[ix+1]) * 0.02;
+                    c[ix+2] += (colorObj.b - c[ix+2]) * 0.02;
                 }
             }
             
             geometry.attributes.position.needsUpdate = true;
-            points.rotation.y += 0.002;
+            geometry.attributes.color.needsUpdate = true;
+            points.rotation.z += 0.001;
             renderer.render(scene, camera);
         }
 
-        // Tải thư viện bổ trợ và chạy
         const loadScript = (src) => new Promise(res => {
             const s = document.createElement('script'); s.src = src; s.onload = res; document.head.appendChild(s);
         });
@@ -137,7 +166,6 @@
             setupHandTracking();
             animate();
         }
-
         init();
 
         window.addEventListener('resize', () => {
