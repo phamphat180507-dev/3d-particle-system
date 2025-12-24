@@ -142,20 +142,3 @@
     </script>
 </body>
 </html>
-async function start() {
-    try {
-        document.getElementById('status').innerText = "Đang kết nối Camera...";
-        await load("https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js");
-        await load("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js");
-        
-        // Kiểm tra xem Hands đã sẵn sàng chưa
-        if (window.Hands) {
-            initHand(); 
-            animate();
-            document.getElementById('status').innerText = "Hệ thống sẵn sàng! Hãy giơ tay lên.";
-        }
-    } catch (error) {
-        document.getElementById('status').innerText = "Lỗi tải thư viện. Vui lòng kiểm tra internet.";
-        console.error(error);
-    }
-}
